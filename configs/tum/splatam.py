@@ -6,12 +6,12 @@ primary_device = "cuda:0"
 scenes = ["freiburg1_desk", "freiburg1_desk2", "freiburg1_room", "freiburg2_xyz", "freiburg3_long_office_household", "freiburg3_walking_xyz"]
 #scenes = ["freiburg3_long_office_household"]
 seed = int(0)
-scene_name = scenes[int(5)]
+scene_name = scenes[int(0)]
 
 map_every = 1
 keyframe_every = 5
 mapping_window_size = 20
-tracking_iters = 200
+tracking_iters = 10
 mapping_iters = 30
 scene_radius_depth_ratio = 2
 

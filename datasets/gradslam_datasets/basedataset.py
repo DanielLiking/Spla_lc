@@ -167,7 +167,7 @@ class GradSLAMDataset(torch.utils.data.Dataset):
         if "crop_edge" in config_dict["camera_params"].keys():
             self.crop_edge = config_dict["camera_params"]["crop_edge"]
 
-        self.color_paths, self.depth_paths, self.embedding_paths = self.get_filepaths()
+        self.color_paths, self.mask_paths, self.depth_paths, self.embedding_paths = self.get_filepaths()
         if len(self.color_paths) != len(self.depth_paths):
             raise ValueError("Number of color and depth images must be the same.")
         if self.load_embeddings:
@@ -180,6 +180,7 @@ class GradSLAMDataset(torch.utils.data.Dataset):
             self.end = self.num_imgs
 
         self.color_paths = self.color_paths[self.start : self.end : stride]
+        self.mask_paths = self.mask_paths[self.start : self.end : stride]
         self.depth_paths = self.depth_paths[self.start : self.end : stride]
         if self.load_embeddings:
             self.embedding_paths = self.embedding_paths[self.start : self.end : stride]
@@ -231,6 +232,30 @@ class GradSLAMDataset(torch.utils.data.Dataset):
         if self.channels_first:
             color = datautils.channels_first(color)
         return color
+    def _preprocess_mask(self, mask: np.ndarray):
+        r"""Preprocesses the color image by resizing to :math:`(H, W, C)`, (optionally) normalizing values to
+        :math:`[0, 1]`, and (optionally) using channels first :math:`(C, H, W)` representation.
+
+        Args:
+            color (np.ndarray): Raw input rgb image
+
+        Retruns:
+            np.ndarray: Preprocessed rgb image
+
+        Shape:
+            - Input: :math:`(H_\text{old}, W_\text{old}, C)`
+            - Output: :math:`(H, W, C)` if `self.channels_first == False`, else :math:`(C, H, W)`.
+        """
+        mask = cv2.resize(
+            mask,
+            (self.desired_width, self.desired_height),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        # if self.normalize_color:
+        #     color = datautils.normalize_image(color)
+        # if self.channels_first:
+        #     color = datautils.channels_first(color)
+        return mask
 
     def _preprocess_depth(self, depth: np.ndarray):
         r"""Preprocesses the depth image by resizing, adding channel dimension, and scaling values to meters. Optionally
@@ -296,8 +321,12 @@ class GradSLAMDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         color_path = self.color_paths[index]
         depth_path = self.depth_paths[index]
+        mask_path = self.mask_paths[index]
         color = np.asarray(imageio.imread(color_path), dtype=float)
         color = self._preprocess_color(color)
+
+        mask = np.asarray(imageio.imread(mask_path), dtype=float)
+        mask = self._preprocess_mask(mask)
         if ".png" in depth_path:
             # depth_data = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
             depth = np.asarray(imageio.imread(depth_path), dtype=np.int64)
@@ -310,6 +339,7 @@ class GradSLAMDataset(torch.utils.data.Dataset):
             color = cv2.undistort(color, K, self.distortion)
 
         color = torch.from_numpy(color)
+        mask = torch.from_numpy(mask)
         K = torch.from_numpy(K)
 
         depth = self._preprocess_depth(depth)
@@ -325,6 +355,7 @@ class GradSLAMDataset(torch.utils.data.Dataset):
             embedding = self.read_embedding_from_file(self.embedding_paths[index])
             return (
                 color.to(self.device).type(self.dtype),
+                mask.to(self.device).type(self.dtype),
                 depth.to(self.device).type(self.dtype),
                 intrinsics.to(self.device).type(self.dtype),
                 pose.to(self.device).type(self.dtype),
@@ -334,6 +365,7 @@ class GradSLAMDataset(torch.utils.data.Dataset):
 
         return (
             color.to(self.device).type(self.dtype),
+            mask.to(self.device).type(self.dtype),
             depth.to(self.device).type(self.dtype),
             intrinsics.to(self.device).type(self.dtype),
             pose.to(self.device).type(self.dtype),

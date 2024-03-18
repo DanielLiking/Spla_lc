@@ -493,16 +493,14 @@ def add_new_gaussians(params, variables, curr_data, sil_thres, time_idx, mean_sq
 
 # 函数作用：用于初始化相机姿态
 # 根据当前时间(使用的是curr_time_idx索引)初始化相机的旋转(cam_unnorm_rots)和平移参数(cam_trans)
-def initialize_camera_pose(intrinsics, pre_color, color, params, curr_time_idx, forward_prop):
+def initialize_camera_pose(rgb_list,intrinsics, color, params, curr_time_idx, forward_prop, options):
     with torch.no_grad(): # 用来确保在这个上下文中,没有梯度计算
-        if curr_time_idx > 1 and forward_prop: # 检查当前时间索引 curr_time_idx 是否大于 1，是否使用了向前传播
-            # Initialize the camera pose for the current frame based on a constant velocity model  
-            # 使用恒速运动模型初始化相机姿态
-            color = color.permute(1, 2, 0) * 255
-            pre_color = pre_color.permute(1, 2, 0) * 255
+        if curr_time_idx > 1 and options =="ORB" and forward_prop:
+            pre_img = rgb_list[curr_time_idx-1]
+            img = rgb_list[curr_time_idx]
             orb = cv2.ORB_create()
             matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-            frame1, frame2 = pre_color.cpu().numpy(), color.cpu().numpy()
+            frame1, frame2 = pre_img.cpu().numpy().astype(np.uint8), img.cpu().numpy().astype(np.uint8)
             intrinsics = intrinsics.cpu().numpy()
 
             # Extract features
@@ -521,35 +519,21 @@ def initialize_camera_pose(intrinsics, pre_color, color, params, curr_time_idx, 
                 pts1 = np.float32([kp1[m.queryIdx].pt for m in filtered_matches]).reshape(-1, 2)
                 pts2 = np.float32([kp2[m.trainIdx].pt for m in filtered_matches]).reshape(-1, 2)
 
-            # Recover camera pose using the filtered matches
+                # Recover camera pose using the filtered matches
                 R, t = recover_camera_pose(E, pts1, pts2, intrinsics, mask)
-            # Rotation 
-            # 通过前两帧的旋转计算出当前帧的新旋转
-                R = RT.from_matrix(R).as_quat()
+                # Rotation
+                # 通过前两帧的旋转计算出当前帧的新旋转
+                # R = RT.from_matrix(R).as_quat()
                 R = torch.from_numpy(R).cuda()
+                R *= 0.02
+                R = matrix_to_quaternion(R)
                 t = torch.from_numpy(t).cuda()
                 new_rot = F.normalize(R.view(1, -1))
                 params['cam_unnorm_rots'][..., curr_time_idx] = new_rot.detach()
                 new_tran = F.normalize(t.view(1, -1))
                 params['cam_trans'][..., curr_time_idx] = new_tran.detach()
             else:
-
-                prev_rot1 = F.normalize(params['cam_unnorm_rots'][..., curr_time_idx - 1].detach())
-                prev_rot2 = F.normalize(params['cam_unnorm_rots'][..., curr_time_idx - 2].detach())
-                new_rot = F.normalize(prev_rot1 + (prev_rot1 - prev_rot2))
-                params['cam_unnorm_rots'][..., curr_time_idx] = new_rot.detach()
-
-                # Translation
-                # 通过前两帧的平移计算出当前帧的新平移
-                prev_tran1 = params['cam_trans'][..., curr_time_idx - 1].detach()
-                prev_tran2 = params['cam_trans'][..., curr_time_idx - 2].detach()
-                new_tran = prev_tran1 + (prev_tran1 - prev_tran2)
-                params['cam_trans'][..., curr_time_idx] = new_tran.detach()
-
-
-
-
-
+                print("mask is None")
         else:
             # Initialize the camera pose for the current frame
             # 否则，直接复制前一帧的相机姿态到当前帧
@@ -696,6 +680,7 @@ def rgbd_slam(config: dict):
                                     tracking_intrinsics.cpu().numpy(), first_frame_w2c.detach().cpu().numpy())
     
     # Initialize list to keep track of Keyframes
+    rgb_list = []
     keyframe_list = []
     keyframe_time_indices = []
     
@@ -756,7 +741,8 @@ def rgbd_slam(config: dict):
         # Load RGBD frames incrementally instead of all frames
 
         color, mask, depth, _, gt_pose = dataset[time_idx] # 从数据集 dataset 中加载 RGB-D 帧的颜色、深度、姿态等信息
-
+        rgb, _, _, _, _ = dataset[time_idx+1]
+        rgb_list.append(rgb)
 
 
         # Process poses
@@ -796,9 +782,9 @@ def rgbd_slam(config: dict):
         # ** Sec 1.1 Camera Pose Initialization **
         # Initialize the camera pose for the current frame
         # 如果当前帧索引大于 0，则初始化相机姿态参数
-        if pre_color is not None:
-            if time_idx > 0:
-                params = initialize_camera_pose(intrinsics,pre_color, color, params, time_idx, forward_prop=config['tracking']['forward_prop']) # 在configs/replica/splatam.py中，forward_prop是True
+
+        if time_idx > 0:
+            params = initialize_camera_pose(rgb_list,intrinsics, color, params, time_idx, forward_prop=config['tracking']['forward_prop'], options="ORB") # 在configs/replica/splatam.py中，forward_prop是True
 
 
 
@@ -839,6 +825,7 @@ def rgbd_slam(config: dict):
 
 
                 # Backprop 将loss进行反向传播,计算梯度
+
                 loss.backward()
                 
                 # Optimizer Update
@@ -1026,6 +1013,7 @@ def rgbd_slam(config: dict):
                                                 config['mapping']['use_l1'], config['mapping']['ignore_outlier_depth_loss'], mapping=True)
 
                 # Backprop
+
                 loss.backward()
                 with torch.no_grad():
                     # Prune Gaussians
@@ -1048,6 +1036,7 @@ def rgbd_slam(config: dict):
                     else:
                         progress_bar.update(1)
                 # Update the runtime numbers
+
                 iter_end_time = time.time()
                 mapping_iter_time_sum += iter_end_time - iter_start_time
                 mapping_iter_time_count += 1

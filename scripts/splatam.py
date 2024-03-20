@@ -6,7 +6,7 @@ import time
 import cv2
 import numpy
 from importlib.machinery import SourceFileLoader
-
+from scipy.spatial.transform import Rotation as RT
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.path.insert(0, _BASE_DIR)
@@ -15,6 +15,7 @@ print("System Paths:")
 for p in sys.path:
     print(p)
 
+from PyOrbSlam.orb_slam import detect_and_compute_orb,match_features,find_essential_matrix,recover_camera_pose
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -184,7 +185,7 @@ def initialize_optimizer(params, lrs_dict, tracking):
 def initialize_first_timestep(dataset, num_frames, scene_radius_depth_ratio, mean_sq_dist_method, densify_dataset=None):
     # Get RGB-D Data & Camera Parameters
     # A.数据获取:从数据集中获取第一帧RGB-D数据（颜色、深度）、相机内参和相机位姿
-    color, depth, intrinsics, pose = dataset[0]
+    color, mask, depth, intrinsics, pose = dataset[0]
 
     # B.数据处理、格式处理、各项设置
     # Process RGB-D Data
@@ -211,8 +212,9 @@ def initialize_first_timestep(dataset, num_frames, scene_radius_depth_ratio, mea
 
     # D.初始化点云和初始化参数，重点函数get_pointcloud()和initialize_params()
     # Get Initial Point Cloud (PyTorch CUDA Tensor)
-    mask = (depth > 0) # Mask out invalid depth values
-    mask = mask.reshape(-1)
+    # mask = (depth > 0) # Mask out invalid depth values
+    mask = mask.reshape(-1).bool()
+
     init_pt_cld, mean3_sq_dist = get_pointcloud(color, depth, densify_intrinsics, w2c, 
                                                 mask=mask, compute_mean_sq_dist=True, 
                                                 mean_sq_dist_method=mean_sq_dist_method)
@@ -492,31 +494,25 @@ def add_new_gaussians(params, variables, curr_data, sil_thres, time_idx, mean_sq
 
 # 函数作用：用于初始化相机姿态
 # 根据当前时间(使用的是curr_time_idx索引)初始化相机的旋转(cam_unnorm_rots)和平移参数(cam_trans)
-def initialize_camera_pose(params, curr_time_idx, forward_prop):
-    with torch.no_grad(): # 用来确保在这个上下文中,没有梯度计算
-        if curr_time_idx > 1 and forward_prop: # 检查当前时间索引 curr_time_idx 是否大于 1，是否使用了向前传播
-            # Initialize the camera pose for the current frame based on a constant velocity model  
-            # 使用恒速运动模型初始化相机姿态
-            
-            # Rotation 
-            # 通过前两帧的旋转计算出当前帧的新旋转
-            prev_rot1 = F.normalize(params['cam_unnorm_rots'][..., curr_time_idx-1].detach())
-            prev_rot2 = F.normalize(params['cam_unnorm_rots'][..., curr_time_idx-2].detach())
+def initialize_camera_pose( params, curr_time_idx, forward_prop):
+    with torch.no_grad():
+        if curr_time_idx > 1 and forward_prop:
+            # Initialize the camera pose for the current frame based on a constant velocity model
+            # Rotation
+            prev_rot1 = F.normalize(params['cam_unnorm_rots'][..., curr_time_idx - 1].detach())
+            prev_rot2 = F.normalize(params['cam_unnorm_rots'][..., curr_time_idx - 2].detach())
             new_rot = F.normalize(prev_rot1 + (prev_rot1 - prev_rot2))
             params['cam_unnorm_rots'][..., curr_time_idx] = new_rot.detach()
-            
             # Translation
-            # 通过前两帧的平移计算出当前帧的新平移
-            prev_tran1 = params['cam_trans'][..., curr_time_idx-1].detach()
-            prev_tran2 = params['cam_trans'][..., curr_time_idx-2].detach()
+            prev_tran1 = params['cam_trans'][..., curr_time_idx - 1].detach()
+            prev_tran2 = params['cam_trans'][..., curr_time_idx - 2].detach()
             new_tran = prev_tran1 + (prev_tran1 - prev_tran2)
             params['cam_trans'][..., curr_time_idx] = new_tran.detach()
         else:
             # Initialize the camera pose for the current frame
-            # 否则，直接复制前一帧的相机姿态到当前帧
-            params['cam_unnorm_rots'][..., curr_time_idx] = params['cam_unnorm_rots'][..., curr_time_idx-1].detach()
-            params['cam_trans'][..., curr_time_idx] = params['cam_trans'][..., curr_time_idx-1].detach()
-    
+            params['cam_unnorm_rots'][..., curr_time_idx] = params['cam_unnorm_rots'][..., curr_time_idx - 1].detach()
+            params['cam_trans'][..., curr_time_idx] = params['cam_trans'][..., curr_time_idx - 1].detach()
+
     return params
 
 
@@ -686,6 +682,7 @@ def rgbd_slam(config: dict):
         keyframe_time_indices = np.load(os.path.join(config['workdir'], config['run_name'], f"keyframe_time_indices{checkpoint_time_idx}.npy"))
         keyframe_time_indices = keyframe_time_indices.tolist()
         # Update the ground truth poses list
+
         for time_idx in range(checkpoint_time_idx):
             # Load RGBD frames incrementally instead of all frames
             color, depth, _, gt_pose = dataset[time_idx]
@@ -711,13 +708,19 @@ def rgbd_slam(config: dict):
     
     # ******************* 重点：迭代处理RGB-D帧，进行跟踪（Tracking）和建图（Mapping）*******************
     # Iterate over Scan
+
     for time_idx in tqdm(range(checkpoint_time_idx, num_frames)): # 循环迭代处理 RGB-D 帧，循环的起始索引是 checkpoint_time_idx（也就是是否从某帧开始，一般都是0开始），终止索引是 num_frames
         # Load RGBD frames incrementally instead of all frames
-        color, depth, _, gt_pose = dataset[time_idx] # 从数据集 dataset 中加载 RGB-D 帧的颜色、深度、姿态等信息
+
+        color, mask, depth, _, gt_pose = dataset[time_idx] # 从数据集 dataset 中加载 RGB-D 帧的颜色、深度、姿态等信息
+
+
+
         # Process poses
         gt_w2c = torch.linalg.inv(gt_pose) # 对姿态信息进行处理，计算gt_pose的逆，也就是世界到相机的变换矩阵 gt_w2c
         
         # Process RGB-D Data
+
         color = color.permute(2, 0, 1) / 255 # 颜色归一化
         depth = depth.permute(2, 0, 1)
         
@@ -750,9 +753,13 @@ def rgbd_slam(config: dict):
         # ** Sec 1.1 Camera Pose Initialization **
         # Initialize the camera pose for the current frame
         # 如果当前帧索引大于 0，则初始化相机姿态参数
+
         if time_idx > 0:
             params = initialize_camera_pose(params, time_idx, forward_prop=config['tracking']['forward_prop']) # 在configs/replica/splatam.py中，forward_prop是True
 
+
+
+        pre_color = color
         # Tracking
 
         tracking_start_time = time.time()
@@ -789,6 +796,7 @@ def rgbd_slam(config: dict):
 
 
                 # Backprop 将loss进行反向传播,计算梯度
+
                 loss.backward()
                 
                 # Optimizer Update
@@ -976,6 +984,7 @@ def rgbd_slam(config: dict):
                                                 config['mapping']['use_l1'], config['mapping']['ignore_outlier_depth_loss'], mapping=True)
 
                 # Backprop
+
                 loss.backward()
                 with torch.no_grad():
                     # Prune Gaussians
@@ -998,6 +1007,7 @@ def rgbd_slam(config: dict):
                     else:
                         progress_bar.update(1)
                 # Update the runtime numbers
+
                 iter_end_time = time.time()
                 mapping_iter_time_sum += iter_end_time - iter_start_time
                 mapping_iter_time_count += 1

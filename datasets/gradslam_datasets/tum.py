@@ -85,15 +85,19 @@ class TUMDataset(GradSLAMDataset):
             pose_list = os.path.join(self.input_folder, 'pose.txt')
 
         image_list = os.path.join(self.input_folder, 'rgb.txt')
+        mask_list = os.path.join(self.input_folder, 'mask.txt')
         depth_list = os.path.join(self.input_folder, 'depth.txt')
 
         image_data = self.parse_list(image_list)
         depth_data = self.parse_list(depth_list)
         pose_data = self.parse_list(pose_list, skiprows=1)
+        mask_data = self.parse_list(mask_list)
+        print(mask_data)
         pose_vecs = pose_data[:, 1:].astype(np.float64)
 
         tstamp_image = image_data[:, 0].astype(np.float64)
         tstamp_depth = depth_data[:, 0].astype(np.float64)
+        tstamp_mask = mask_data[:,0].astype(np.float64)
         tstamp_pose = pose_data[:, 0].astype(np.float64)
         associations = self.associate_frames(
             tstamp_image, tstamp_depth, tstamp_pose)
@@ -105,15 +109,16 @@ class TUMDataset(GradSLAMDataset):
             if t1 - t0 > 1.0 / frame_rate:
                 indicies += [i]
 
-        color_paths, depth_paths = [], []
+        color_paths, mask_paths, depth_paths = [], [], []
         for ix in indicies:
             (i, j, k) = associations[ix]
             color_paths += [os.path.join(self.input_folder, image_data[i, 1])]
+            mask_paths += [os.path.join(self.input_folder, mask_data[i, 1])]
             depth_paths += [os.path.join(self.input_folder, depth_data[j, 1])]
 
         embedding_paths = None
 
-        return color_paths, depth_paths, embedding_paths
+        return color_paths, mask_paths, depth_paths, embedding_paths
     
     def load_poses(self):
         

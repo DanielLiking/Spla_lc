@@ -289,7 +289,7 @@ def eval_online(dataset, all_params, num_frames, eval_online_dir, sil_thres,
         params = all_params[time_idx]
 
         # Get RGB-D Data & Camera Parameters
-        color, depth, intrinsics, pose = dataset[time_idx]
+        color,mask, depth, intrinsics, pose = dataset[time_idx]
         intrinsics = intrinsics[:3, :3]
 
         # Process RGB-D Data
@@ -425,7 +425,7 @@ def eval(dataset, final_params, num_frames, eval_dir, sil_thres,
     gt_w2c_list = []
     for time_idx in tqdm(range(num_frames)):
          # Get RGB-D Data & Camera Parameters
-        color, depth, intrinsics, pose = dataset[time_idx]
+        color, mask, depth, intrinsics, pose = dataset[time_idx]
         gt_w2c = torch.linalg.inv(pose)
         gt_w2c_list.append(gt_w2c)
         intrinsics = intrinsics[:3, :3]
@@ -643,7 +643,7 @@ def eval_nvs(dataset, final_params, num_frames, eval_dir, sil_thres,
 
     for time_idx in tqdm(range(num_frames)):
          # Get RGB-D Data & Camera Parameters
-        color, depth, intrinsics, pose = dataset[time_idx]
+        color,mask, depth, intrinsics, pose = dataset[time_idx]
         gt_w2c = torch.linalg.inv(pose)
         intrinsics = intrinsics[:3, :3]
 

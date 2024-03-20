@@ -27,7 +27,7 @@ config = dict(
     keyframe_every=keyframe_every, # Keyframe every nth frame
     mapping_window_size=mapping_window_size, # Mapping window size
     report_global_progress_every=500, # Report Global Progress every nth frame
-    eval_every=500, # Evaluate every nth frame (at end of SLAM)
+    eval_every=2, # Evaluate every nth frame (at end of SLAM)
     scene_radius_depth_ratio=scene_radius_depth_ratio, # Max First Frame Depth to Scene Radius Ratio (For Pruning/Densification)
     mean_sq_dist_method="projective", # ["projective", "knn"] (Type of Mean Squared Distance Calculation for Scale of Gaussians)
     gaussian_distribution="isotropic", # ["isotropic", "anisotropic"] (Isotropic -> Spherical Covariance, Anisotropic -> Ellipsoidal Covariance)
@@ -46,7 +46,7 @@ config = dict(
         eval_save_qual=True,
     ),
     data=dict(
-        basedir="/home/lc/SplaTAM/data/TUM_RGBD/",
+        basedir="/home/ll/lichao/TUM/",
         gradslam_data_cfg=f"./configs/data/TUM/{scene_name}.yaml",
         sequence=f"rgbd_dataset_{scene_name}",
         desired_image_height=480,
@@ -77,8 +77,8 @@ config = dict(
             unnorm_rotations=0.0,
             logit_opacities=0.0,
             log_scales=0.0,
-            cam_unnorm_rots=0.002,
-            cam_trans=0.002,
+            cam_unnorm_rots=0.001,
+            cam_trans=0.001,
         ),
     ),
     mapping=dict(

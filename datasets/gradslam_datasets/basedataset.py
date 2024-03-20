@@ -366,6 +366,7 @@ class GradSLAMDataset(torch.utils.data.Dataset):
         return (
             color.to(self.device).type(self.dtype),
             mask.to(self.device).type(self.dtype),
+
             depth.to(self.device).type(self.dtype),
             intrinsics.to(self.device).type(self.dtype),
             pose.to(self.device).type(self.dtype),

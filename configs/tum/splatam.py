@@ -46,7 +46,7 @@ config = dict(
         eval_save_qual=True,
     ),
     data=dict(
-        basedir="/home/ll/lichao/TUM/",
+        basedir="/home/lc/SplaTAM/data/TUM_RGBD",
         gradslam_data_cfg=f"./configs/data/TUM/{scene_name}.yaml",
         sequence=f"rgbd_dataset_{scene_name}",
         desired_image_height=480,
@@ -54,7 +54,7 @@ config = dict(
         start=0,
         end=-1,
         stride=1,
-        num_frames=-1,
+        num_frames=20,
     ),
     tracking=dict(
         use_gt_poses=False, # Use GT Poses for Tracking

@@ -92,7 +92,6 @@ class TUMDataset(GradSLAMDataset):
         depth_data = self.parse_list(depth_list)
         pose_data = self.parse_list(pose_list, skiprows=1)
         mask_data = self.parse_list(mask_list)
-        print(mask_data)
         pose_vecs = pose_data[:, 1:].astype(np.float64)
 
         tstamp_image = image_data[:, 0].astype(np.float64)

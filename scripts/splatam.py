@@ -125,7 +125,9 @@ def get_pointcloud(color, depth, intrinsics, w2c, transform_pts=True,
 
     # Optional: Select points based on mask
     if mask is not None:
+
         point_cld = point_cld[mask]
+
         if compute_mean_sq_dist:
             mean3_sq_dist = mean3_sq_dist[mask]
 
@@ -182,16 +184,22 @@ def initialize_optimizer(params, lrs_dict, tracking):
         return torch.optim.Adam(param_groups, lr=0.0, eps=1e-15)
 
 # 函数目的：在全局第一次第一帧做初始化，初始化高斯点云
+def remove_mask(color, mask, depth):
+    mask = mask.bool()
+    mask = ~mask
+    filter_color = color.clone() * mask.unsqueeze(2)
+    filter_depth = depth.clone() * mask.unsqueeze(2)
+
+
+    return filter_color,filter_depth
 def initialize_first_timestep(dataset, num_frames, scene_radius_depth_ratio, mean_sq_dist_method, densify_dataset=None):
     # Get RGB-D Data & Camera Parameters
     # A.数据获取:从数据集中获取第一帧RGB-D数据（颜色、深度）、相机内参和相机位姿
     color, mask, depth, intrinsics, pose = dataset[0]
+    # color, depth = remove_mask(color, mask, depth)
 
-    # B.数据处理、格式处理、各项设置
-    # Process RGB-D Data
     color = color.permute(2, 0, 1) / 255 # (H, W, C) -> (C, H, W)
     depth = depth.permute(2, 0, 1) # (H, W, C) -> (C, H, W)
-    
     # Process Camera Parameters
     intrinsics = intrinsics[:3, :3]
     w2c = torch.linalg.inv(pose)
@@ -214,6 +222,7 @@ def initialize_first_timestep(dataset, num_frames, scene_radius_depth_ratio, mea
     # Get Initial Point Cloud (PyTorch CUDA Tensor)
     # mask = (depth > 0) # Mask out invalid depth values
     mask = mask.reshape(-1).bool()
+    mask = ~mask
 
     init_pt_cld, mean3_sq_dist = get_pointcloud(color, depth, densify_intrinsics, w2c, 
                                                 mask=mask, compute_mean_sq_dist=True, 
@@ -713,7 +722,7 @@ def rgbd_slam(config: dict):
         # Load RGBD frames incrementally instead of all frames
 
         color, mask, depth, _, gt_pose = dataset[time_idx] # 从数据集 dataset 中加载 RGB-D 帧的颜色、深度、姿态等信息
-
+        color, depth = remove_mask(color,mask,depth)
 
 
         # Process poses
@@ -723,7 +732,7 @@ def rgbd_slam(config: dict):
 
         color = color.permute(2, 0, 1) / 255 # 颜色归一化
         depth = depth.permute(2, 0, 1)
-        
+
         gt_w2c_all_frames.append(gt_w2c)
         curr_gt_w2c = gt_w2c_all_frames
         # Optimize only current time step for tracking
